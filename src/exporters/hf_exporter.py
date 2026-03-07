@@ -11,6 +11,7 @@ Token permissions:
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
 from huggingface_hub import HfApi, create_repo
@@ -103,19 +104,26 @@ def export_to_hub(
     tokenizer = AutoTokenizer.from_pretrained(str(merged_model_path))
     model = AutoModelForCausalLM.from_pretrained(str(merged_model_path))
 
+    # Fix tie_word_embeddings conflict: Qwen3 merged checkpoints have both
+    # embed_tokens.weight and lm_head.weight, but config.tie_word_embeddings=True.
+    # transformers' reverse_op raises NotImplementedError in this case.
+    # Setting it to False avoids the conflict and is safe for inference.
+    if getattr(model.config, "tie_word_embeddings", False):
+        model.config.tie_word_embeddings = False
+        console.print("[yellow]tie_word_embeddings → False (Qwen3 merged checkpoint fix)[/yellow]")
+
     console.print(f"Pushing to HuggingFace Hub: {repo_id} (private={private})...")
-    model.push_to_hub(
-        repo_id,
-        private=private,
-        commit_message=commit_message,
-        token=hf_token,
-    )
-    tokenizer.push_to_hub(
-        repo_id,
-        private=private,
-        commit_message=commit_message,
-        token=hf_token,
-    )
+    # Use save_pretrained → upload_folder instead of model.push_to_hub() to avoid
+    # the reverse_op NotImplementedError in transformers with tied-weight configs.
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        model.save_pretrained(tmp_dir)
+        tokenizer.save_pretrained(tmp_dir)
+        api.upload_folder(
+            folder_path=tmp_dir,
+            repo_id=repo_id,
+            repo_type="model",
+            commit_message=commit_message,
+        )
 
     url = f"https://huggingface.co/{repo_id}"
     console.print(f"[bold green]✓ Modello pubblicato: {url}[/bold green]")

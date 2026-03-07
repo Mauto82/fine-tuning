@@ -1,9 +1,12 @@
 purpose: "Pusha il modello merged su HuggingFace Hub."
 
 tensions:
-  - "Carica il modello in memoria per fare push: necessario per usare
-    model.push_to_hub() invece di huggingface_hub.upload_folder().
-    L'alternativa upload_folder è più veloce ma non genera la model card
-    automatica con i metadati corretti."
+  - "save_pretrained → upload_folder invece di model.push_to_hub(): i checkpoint
+    Qwen3 merged hanno sia embed_tokens.weight che lm_head.weight, ma
+    config.tie_word_embeddings=True. transformers.reverse_op lancia
+    NotImplementedError in questo caso. upload_folder evita completamente quel
+    codepath. Tradeoff: niente model card automatica, ma funziona."
+  - "tie_word_embeddings → False prima del salvataggio: sicuro per inference,
+    necessario per evitare il conflitto con i pesi untied nel checkpoint merged."
   - "private=True come default: sicurezza prima di tutto. L'utente deve
     scegliere esplicitamente di rendere pubblico il modello fine-tunato."
